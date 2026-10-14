@@ -18,6 +18,12 @@ main{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(270px,.9fr);gap:2
 h1{font-size:clamp(1.8rem,4vw,2.7rem);line-height:1.15;margin:0 0 9px;letter-spacing:-1px}
 .sub{color:var(--muted);line-height:1.7;margin:0 0 18px}
 .stats{display:flex;gap:10px;margin:0 0 14px}
+.settings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 15px}
+.setting{display:flex;flex-direction:column;gap:7px;background:#faf9ff;border:1px solid var(--line);border-radius:15px;padding:11px;min-width:0}
+.setting label{font-size:.82rem;font-weight:900;line-height:1.35}
+.setting select{width:100%;min-width:0;border:1px solid #ddd6fa;background:white;border-radius:10px;padding:9px 7px;color:var(--ink);font:inherit;font-size:.85rem}
+.setting small{font-size:.72rem;color:var(--muted);line-height:1.35}
+@media(max-width:480px){.settings{grid-template-columns:1fr}.setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(120px,1fr);align-items:center}.setting small{grid-column:1/-1}}
 .stat{flex:1;background:#f7f5ff;border-radius:15px;padding:10px 13px}.stat small{display:block;color:var(--muted);font-weight:700;font-size:.78rem}.stat strong{font-size:1.45rem}
 .board-wrap{position:relative;background:#e9f8ee;border-radius:20px;padding:9px;overflow:hidden}
 canvas{display:block;width:100%;aspect-ratio:1/1;border-radius:14px;background:#eaf8ef;touch-action:none}
@@ -44,6 +50,11 @@ footer{text-align:center;color:#9993b4;font-size:.82rem;margin:20px 0 4px}
   <h1>貪食蛇大冒險 🐍</h1>
   <p class="sub">吃到小果果，讓蛇蛇慢慢長大！小心不要撞到牆壁或自己的身體喔。</p>
   <div class="stats"><div class="stat"><small>🍎 得分</small><strong id="score">0</strong></div><div class="stat"><small>🏆 最高紀錄</small><strong id="best">0</strong></div><div class="stat"><small>🐍 蛇蛇長度</small><strong id="length">3</strong></div></div>
+  <div class="settings" aria-label="遊戲設定">
+    <div class="setting"><label for="speedSetting">⚡ 蛇蛇速度</label><select id="speedSetting"><option value="220">慢慢走</option><option value="135" selected>普通</option><option value="85">快速</option><option value="55">超級快</option></select><small>速度越快，越考驗反應喔！</small></div>
+    <div class="setting"><label for="sizeSetting">🗺️ 活動範圍</label><select id="sizeSetting"><option value="12">小（12 × 12）</option><option value="16">中（16 × 16）</option><option value="20" selected>大（20 × 20）</option><option value="24">特大（24 × 24）</option></select><small>範圍越大，探索空間越多。</small></div>
+    <div class="setting"><label for="appleSetting">🍎 蘋果消失時間</label><select id="appleSetting"><option value="0" selected>永不消失</option><option value="5">5 秒</option><option value="10">10 秒</option><option value="15">15 秒</option><option value="30">30 秒</option></select><small>預設 0 秒：蘋果不會消失。</small></div>
+  </div>
   <div class="board-wrap">
     <canvas id="game" width="400" height="400" aria-label="貪食蛇遊戲區域"></canvas>
     <div class="overlay" id="overlay"><div class="overlay-card"><div class="emoji" id="overlayEmoji">🐍</div><h2 id="overlayTitle">準備好了嗎？</h2><p id="overlayText">用方向鍵或下方按鈕控制蛇蛇，吃到果果就能得分！</p><button class="primary" id="startBtn">開始遊戲 ▶</button></div></div>
@@ -72,27 +83,33 @@ const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
 const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best'),lengthEl=document.getElementById('length');
 const overlay=document.getElementById('overlay'),overlayEmoji=document.getElementById('overlayEmoji'),overlayTitle=document.getElementById('overlayTitle'),overlayText=document.getElementById('overlayText');
 const startBtn=document.getElementById('startBtn'),pauseBtn=document.getElementById('pauseBtn'),restartBtn=document.getElementById('restartBtn');
-const N=20,CELL=20;let snake,dir,nextDir,food,score,best=0,timer=null,state='ready';
+let N=20,CELL=400/N;let snake,dir,nextDir,food,score,best=0,timer=null,state='ready',foodBornAt=0;
+const speedSetting=document.getElementById('speedSetting'),sizeSetting=document.getElementById('sizeSetting'),appleSetting=document.getElementById('appleSetting');
+function speedMs(){return Number(speedSetting.value)}
+function appleLifetime(){return Number(appleSetting.value)*1000}
 try{best=Number(localStorage.getItem('mgw-snake-best')||0)}catch(e){}bestEl.textContent=best;
-function randFood(){let p;do{p={x:Math.floor(Math.random()*N),y:Math.floor(Math.random()*N)}}while(snake.some(s=>s.x===p.x&&s.y===p.y));return p}
-function reset(){stop();snake=[{x:8,y:10},{x:7,y:10},{x:6,y:10}];dir={x:1,y:0};nextDir={x:1,y:0};score=0;food=randFood();state='ready';updateStats();draw();showOverlay('🐍','準備好了嗎？','用方向鍵或下方按鈕控制蛇蛇，吃到果果就能得分！','開始遊戲 ▶')}
+function randFood(){let p;do{p={x:Math.floor(Math.random()*N),y:Math.floor(Math.random()*N)}}while(snake.some(s=>s.x===p.x&&s.y===p.y));foodBornAt=Date.now();return p}
+function reset(){stop();CELL=400/N;const cx=Math.floor(N/2),cy=Math.floor(N/2);snake=[{x:cx,y:cy},{x:cx-1,y:cy},{x:cx-2,y:cy}];dir={x:1,y:0};nextDir={x:1,y:0};score=0;food=randFood();state='ready';pauseBtn.textContent='⏸ 暫停';updateStats();draw();showOverlay('🐍','準備好了嗎？','用方向鍵或下方按鈕控制蛇蛇，吃到果果就能得分！','開始遊戲 ▶')}
 function updateStats(){scoreEl.textContent=score;bestEl.textContent=best;lengthEl.textContent=snake.length}
 function showOverlay(emoji,title,desc,button){overlayEmoji.textContent=emoji;overlayTitle.textContent=title;overlayText.textContent=desc;startBtn.textContent=button;overlay.classList.remove('hidden')}
 function hideOverlay(){overlay.classList.add('hidden')}
 function stop(){if(timer){clearInterval(timer);timer=null}}
-function start(){if(state==='over')reset();if(state==='playing')return;state='playing';hideOverlay();pauseBtn.textContent='⏸ 暫停';stop();timer=setInterval(tick,135)}
+function start(){if(state==='over')reset();if(state==='playing')return;state='playing';hideOverlay();pauseBtn.textContent='⏸ 暫停';stop();timer=setInterval(tick,speedMs())}
 function pause(){if(state==='playing'){state='paused';stop();showOverlay('⏸️','休息一下！','蛇蛇已經停下來囉，準備好再繼續吧。','繼續遊戲 ▶');pauseBtn.textContent='▶ 繼續'}else if(state==='paused'){start()}else if(state==='ready'){start()} }
 function end(){state='over';stop();showOverlay('🌈','好棒的挑戰！','這次得到 '+score+' 分！再試一次，看看能不能打破最高紀錄。','再玩一次 ↻')}
-function tick(){dir=nextDir;const head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};if(head.x<0||head.x>=N||head.y<0||head.y>=N||snake.some((s,i)=>i<snake.length-1&&s.x===head.x&&s.y===head.y)){end();return}snake.unshift(head);if(head.x===food.x&&head.y===food.y){score+=10;if(score>best){best=score;try{localStorage.setItem('mgw-snake-best',String(best))}catch(e){}}food=randFood()}else snake.pop();updateStats();draw()}
+function tick(){if(appleLifetime()>0&&Date.now()-foodBornAt>=appleLifetime()){food=randFood()}dir=nextDir;const head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};if(head.x<0||head.x>=N||head.y<0||head.y>=N||snake.some((s,i)=>i<snake.length-1&&s.x===head.x&&s.y===head.y)){end();return}snake.unshift(head);if(head.x===food.x&&head.y===food.y){score+=10;if(score>best){best=score;try{localStorage.setItem('mgw-snake-best',String(best))}catch(e){}}food=randFood()}else snake.pop();updateStats();draw()}
 function setDir(name){const dirs={up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};const d=dirs[name];if(!d)return;if(d.x===-dir.x&&d.y===-dir.y)return;nextDir=d;if(state==='ready')start()}
-function draw(){ctx.clearRect(0,0,400,400);ctx.fillStyle='#eaf8ef';ctx.fillRect(0,0,400,400);ctx.strokeStyle='#d9efdf';ctx.lineWidth=1;for(let i=0;i<=N;i++){ctx.beginPath();ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,400);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*CELL);ctx.lineTo(400,i*CELL);ctx.stroke()}
-ctx.font='18px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('🍎',food.x*CELL+10,food.y*CELL+10);
-snake.forEach((s,i)=>{const pad=i===0?1:2;const x=s.x*CELL+pad,y=s.y*CELL+pad,size=CELL-pad*2;ctx.fillStyle=i===0?'#5cba8b':i%2?'#77d5a4':'#69c998';roundRect(x,y,size,size,i===0?7:6);ctx.fill();if(i===0){ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(x+size*.33,y+size*.36,2.6,0,Math.PI*2);ctx.arc(x+size*.68,y+size*.36,2.6,0,Math.PI*2);ctx.fill();ctx.fillStyle='#315d4a';ctx.beginPath();ctx.arc(x+size*.33+dir.x,y+size*.36+dir.y,1.2,0,Math.PI*2);ctx.arc(x+size*.68+dir.x,y+size*.36+dir.y,1.2,0,Math.PI*2);ctx.fill()}})}
+function draw(){CELL=400/N;ctx.clearRect(0,0,400,400);ctx.fillStyle='#eaf8ef';ctx.fillRect(0,0,400,400);ctx.strokeStyle='#d9efdf';ctx.lineWidth=1;for(let i=0;i<=N;i++){ctx.beginPath();ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,400);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*CELL);ctx.lineTo(400,i*CELL);ctx.stroke()}
+ctx.font=Math.max(11,Math.min(22,CELL*.9))+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('🍎',food.x*CELL+CELL/2,food.y*CELL+CELL/2);
+snake.forEach((s,i)=>{const pad=Math.max(1,CELL*.07);const x=s.x*CELL+pad,y=s.y*CELL+pad,size=CELL-pad*2;ctx.fillStyle=i===0?'#5cba8b':i%2?'#77d5a4':'#69c998';roundRect(x,y,size,size,Math.max(3,CELL*.28));ctx.fill();if(i===0){ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(x+size*.33,y+size*.36,Math.max(1.4,CELL*.13),0,Math.PI*2);ctx.arc(x+size*.68,y+size*.36,Math.max(1.4,CELL*.13),0,Math.PI*2);ctx.fill();ctx.fillStyle='#315d4a';ctx.beginPath();ctx.arc(x+size*.33+dir.x*CELL*.04,y+size*.36+dir.y*CELL*.04,Math.max(1,CELL*.06),0,Math.PI*2);ctx.arc(x+size*.68+dir.x*CELL*.04,y+size*.36+dir.y*CELL*.04,Math.max(1,CELL*.06),0,Math.PI*2);ctx.fill()}})}
 function roundRect(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r)}
 document.addEventListener('keydown',e=>{const map={ArrowUp:'up',w:'up',W:'up',ArrowDown:'down',s:'down',S:'down',ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'};if(map[e.key]){e.preventDefault();setDir(map[e.key])}if(e.key===' '){e.preventDefault();pause()}if(e.key==='Enter'&&state!=='playing')start()});
 document.querySelectorAll('[data-dir]').forEach(b=>{b.addEventListener('pointerdown',e=>{e.preventDefault();setDir(b.dataset.dir)})});
 startBtn.addEventListener('click',()=>{if(state==='paused')start();else start()});
 pauseBtn.addEventListener('click',pause);restartBtn.addEventListener('click',reset);
+speedSetting.addEventListener('change',()=>{if(state==='playing'){stop();timer=setInterval(tick,speedMs())}});
+sizeSetting.addEventListener('change',()=>{N=Number(sizeSetting.value);reset()});
+appleSetting.addEventListener('change',()=>{foodBornAt=Date.now()});
 let touchX=0,touchY=0;canvas.addEventListener('touchstart',e=>{const t=e.changedTouches[0];touchX=t.clientX;touchY=t.clientY},{passive:true});canvas.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-touchX,dy=t.clientY-touchY;if(Math.max(Math.abs(dx),Math.abs(dy))>22)setDir(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'))},{passive:true});
 reset();
 })();
